@@ -1,0 +1,246 @@
+//EXTRACTING FUNCTION NUMBER FROM USER STACK
+alias userSP R0;
+alias proc_table R9;
+proc_table=PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16;
+userSP=SP;
+[proc_table+13]=SP;
+SP=[proc_table+11]*512-1;
+alias funNum R1;
+funNum=[[PTBR+2*((userSP-5)/512)]*512+(userSP-5)%512];
+
+alias returnadd R10;
+
+returnadd=[PTBR+2*((userSP-1)/512)]*512+(userSP-1)%512;
+
+alias filename R2;
+
+filename=[[PTBR+2*((userSP-4)/512)]*512+(userSP-4)%512];
+
+//IMPLEMENTING ...........................CREATE SYSTEM CALL
+if(funNum==1)then
+[proc_table+9]=1;
+alias  perm R3;
+perm=[[PTBR+2*((userSP-3)/512)]*512+(userSP-3)%512];
+
+alias index R4;
+ index=0;
+//CHECKING FILE IN INODE TABLE 
+while(index<60)do
+  
+//IF FILE IS ALREADY PRESENT
+if([INODE_TABLE+index*16]==DATA&&[INODE_TABLE+index*16+1]==filename)
+then
+[returnadd]=0;
+
+[proc_table+9]=0;
+SP=userSP;
+ireturn;
+endif;
+index=index+1;
+endwhile;
+
+//SEARCHING FOR INODE INDEX
+index=0;
+while(index<60)do
+//condition for checking free inode index
+ if([INODE_TABLE+index*16+1]==-1)then
+   break;
+endif;
+index=index+1;
+endwhile;
+
+//maximum number of files reached  return -1
+
+if(index==60)then
+
+[returnadd]=0;
+
+[proc_table+9]=0;
+SP=userSP;
+ireturn;
+endif;
+alias inode_add R6;
+inode_add=INODE_TABLE+index*16;
+//SETTING ENTRIES OF INODE TABLE
+//type
+[inode_add]=DATA;
+//FILENAME
+[inode_add+1]=filename;
+//FILESIZE
+[inode_add+2]=0;
+//SETTING BLOCK NUMBERS
+alias count R5;
+count=8;
+while(count<12)do
+[inode_add+count]=-1;
+count=count+1;
+endwhile;
+
+//USERID
+[inode_add+3]=[proc_table+3];
+//PREMISSION
+[inode_add+4]=perm;
+
+alias root_val R8;
+root_val=ROOT_FILE+index*8;
+//SETTING ENTRY OF ROOT FILE
+//filename
+[root_val]=filename;
+//filesize
+[root_val+1]=0;
+//filetype
+[root_val+2]=DATA;
+//USERNAME
+[root_val+3]=[USER_TABLE+2*[proc_table+3]];
+//PERMISSION
+[root_val+4]=perm;
+
+[returnadd]=0;
+
+[proc_table+9]=0;
+SP=userSP;
+ireturn;
+endif;
+
+//IMPLEMENTING -----------------DELETE SYSTEM CALL
+
+if(funNum==4)then
+[proc_table+9]=4;
+
+alias index R4;
+ index=0;
+while(index<60)do
+  
+//FIND THE INDEX OF THE FILE
+if([INODE_TABLE+index*16+1]==filename)
+then
+break;
+endif;
+index=index+1;
+endwhile;
+
+//if file is not present
+if(index==60)then
+
+[returnadd]=0;
+
+[proc_table+9]=0;
+SP=userSP;
+ireturn;
+endif;
+
+//if file is not a data file
+if([INODE_TABLE+index*16]!=DATA)then
+
+[returnadd]=-1;
+
+[proc_table+9]=0;
+SP=userSP;
+ireturn;
+endif;
+//EXCLUSIVE PERMISSION IS SET 
+if([INODE_TABLE+index*16+4]==0)then
+
+ if([USER_TABLE+[proc_table+3]*2]!=ROOT&&[USER_TABLE+[proc_table+3]*2]!=[proc_table+3])then 
+
+   [returnadd]=-1;
+
+[proc_table+9]=0;
+SP=userSP;
+ireturn;
+endif;
+endif;
+//calling acquire inode function
+
+multipush(R0,R1,R2,R4,R9,R10);
+R1=4;
+R2=index;
+R3=[SYSTEM_STATUS_TABLE+1];
+call MOD_0;
+multipop(R0,R1,R2,R4,R9,R10);
+//if file open count is not -1
+if([FILE_STATUS_TABLE+index*4+1]!=-1)then
+//release inode
+multipush(R0,R1,R2,R4,R9,R10);
+R1=5;
+R2=index;
+R3=[SYSTEM_STATUS_TABLE+1];
+call MOD_0;
+multipop(R0,R1,R2,R4,R9,R10);
+[returnadd]=-2;
+
+[proc_table+9]=0;
+SP=userSP;
+ireturn;
+endif;
+// disk block INTO INODE TABLE
+
+alias count1 R3;
+alias count2 R5;
+count1=8;
+while(count1<12)do
+if([INODE_TABLE+index*16+count1]!=-1)then
+//checking disk block into buffer
+ count2=[INODE_TABLE+index*16+count1]%4;
+if([BUFFER_TABLE+count2*4]==[INODE_TABLE+index*16+count1]&&[BUFFER_TABLE+count2*4+1]==1)
+ then 
+[BUFFER_TABLE+count2*4]=0;
+endif;
+//release block
+multipush(R0,R1,R2,R3,R4);
+R1=4;
+R2=[INODE_TABLE+index*16+count1];
+R3=[SYSTEM_STATUS_TABLE+1];
+
+call MOD_2;
+multipop(R0,R1,R2,R3,R4);
+endif;
+count1=count1+1;
+endwhile;
+
+//invalidating inode table of file
+alias count R6;
+count=0;
+while(count<4)do
+[INODE_TABLE+index*16+count]=-1;
+count=count+1;
+endwhile;
+
+//invalidating root file entry
+count=0;
+while(count<4)do
+[ROOT_FILE+index*8+count]=-1;
+count=count+1;
+endwhile;
+//release inode
+multipush(R0,R1,R2,R3,R4,R5,R9,R10);
+R1=5;
+R2=index;
+R3=[SYSTEM_STATUS_TABLE+1];
+call MOD_0;
+multipop(R0,R1,R2,R3,R4,R5,R9,R10);
+
+
+[returnadd]=0;
+[proc_table+9]=0;
+SP=userSP;
+ireturn;
+endif;
+
+
+
+
+
+
+
+
+ 
+
+
+
+
+
+
+
+
+

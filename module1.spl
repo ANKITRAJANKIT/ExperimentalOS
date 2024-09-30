@@ -1,0 +1,186 @@
+alias funNum R1;
+alias currentPid R2;
+//GET ........PCB ENTRY FUNCTION
+if(funNum==1)then
+alias pid R2;
+alias cpid R0;
+cpid=-1;
+pid=0;
+while(pid<16)do
+if([PROCESS_TABLE+pid*16+4]==TERMINATED)then
+  cpid=pid;
+  break;
+endif;
+pid=pid+1;
+endwhile;
+if(cpid!=-1)then
+[PROCESS_TABLE+cpid*16+1]=cpid;
+[PROCESS_TABLE+cpid*16+4]=ALLOCATED;
+[PROCESS_TABLE+cpid*16+14]=PAGE_TABLE_BASE+cpid*20;
+[PROCESS_TABLE+cpid*16+15]=10;
+endif;
+return ;
+endif;
+
+//FREE USER ..........AREA PAGE
+  if(funNum==2)then
+
+   alias userP R5;
+   userP=[PROCESS_TABLE+currentPid*16+11];
+//if process acquire any semaphore release it
+alias count R4;
+count=0;
+while(count<8)do
+//closing the unclosed file when process is terminating
+
+if([userP*512+496+count*2]==0)then
+  multipush(R0,R1,R2,R3,R4,R5);
+  R1=4;
+  R2=[userP*512+496+count*2+1];
+  call MOD_3;
+  multipop(R0,R1,R2,R3,R4,R5);
+  endif;
+
+
+
+
+if([userP*512+496+count*2]==1)then
+  multipush(R0,R1,R2,R3,R4,R5);
+  R1=7;
+  R3=currentPid;
+  R2=[userP*512+496+count*2+1];
+  call MOD_0;
+  multipop(R0,R1,R2,R3,R4,R5);
+  endif;
+count=count+1;
+endwhile;
+ multipush(R0,R1,R2,R5);
+    R1=2;
+     R2=userP;
+    call MOD_2;
+     multipop(R0,R1,R2,R5);
+     return;
+    endif;
+//............EXIT ...PROCESS
+if(funNum==3)then
+if([PROCESS_TABLE+currentPid*16+9]!=9)then
+alias pid R3;
+pid=0;
+while(pid<16)do
+if([PROCESS_TABLE+pid*16+4]==WAIT_PROCESS&&[PROCESS_TABLE+pid*16+5]==currentPid)then
+[PROCESS_TABLE+pid*16+4]=READY;
+endif;
+if([PROCESS_TABLE+pid*16+2]==currentPid)then
+[PROCESS_TABLE+pid*16+2]=-1;
+endif;
+pid=pid+1;
+endwhile;
+endif;
+multipush(R0,R1,R2,R3);
+//call free page table
+R1=4;
+R2=currentPid;
+call MOD_1;
+//call user area page
+R1=2;
+R2=currentPid;
+call MOD_1;
+multipop(R0,R1,R2,R3);
+[PROCESS_TABLE+currentPid*16+4]=TERMINATED;
+return ;
+endif;
+
+//...FREE ..PAGE ...TABLE
+if(funNum==4)then
+//INVALIADATING LIBRARY PAGE
+[PTBR+0]=-1;
+[PTBR+1]="0000";
+[PTBR+2]=-1;
+[PTBR+3]="0000";
+
+//releasing all other page
+alias count R5;
+count=2;
+while(count<10)
+    do
+  if([PTBR+2*count]!=-1)then 
+    multipush(R0,R1,R2,R3,R4,R5);
+    R1=2;
+    R2=[PTBR+2*count];
+     call MOD_2;
+   multipop(R0,R1,R2,R3,R4,R5);
+  [PTBR+2*count+1]="0000";
+    endif;
+    count=count+1;
+   endwhile;
+count=2;
+while(count<10)do
+  if([DISK_MAP_TABLE+R2*10+count]!=-1&&(count<=3||count>7))then
+       multipush(R0,R1,R2,R3,R4,R5);
+        R1=4;
+        R3=currentPid;
+        R2=[DISK_MAP_TABLE+R2*10+count];
+        call MOD_2;
+        multipop(R0,R1,R2,R3,R4,R5);
+   endif;
+         count=count+1;
+endwhile;
+count=0;
+while(count<10)do
+[DISK_MAP_TABLE+R2*10+count]=-1;
+count=count+1;
+endwhile;
+return ;
+endif;
+
+//IMPLEMENTING ............KILL ALL FUNCTION
+
+  if(funNum==5)then
+   // Lock all files to ensure that no processes are in the middle of a file operation 
+  alias inode R3;
+   inode=0;
+   while(inode<60)do
+   if([INODE_TABLE+inode*16+1]!=-1)then
+    //acquire inode 
+    multipush(R0,R1,R2,R3);
+     R1=4;
+     R2=inode;
+     R3=[SYSTEM_STATUS_TABLE+1];
+     call MOD_0;
+    multipop(R0,R1,R2,R3);
+    endif;
+  inode=inode+1;
+  endwhile;
+
+//looping through all the processes except idle ,init and current 
+  inode=2;
+  while(inode<16)do
+    if(inode!=currentPid &&[PROCESS_TABLE+inode*16+4]!=TERMINATED)then
+     multipush(R0,R1,R2,R3);
+      R1=3;
+       R2=inode;
+      call MOD_1;
+    multipop(R0,R1,R2,R3);
+      endif;
+  inode=inode+1;
+   endwhile;
+//releasing all the valid inode 
+
+inode=0;
+   while(inode<60)do
+   if([INODE_TABLE+inode*16+1]!=-1)then
+    //acquire inode 
+    multipush(R0,R1,R2,R3);
+     R1=5;
+     R2=inode;
+     R3=[SYSTEM_STATUS_TABLE+1];
+     call MOD_0;
+    multipop(R0,R1,R2,R3);
+    endif;
+  inode=inode+1;
+  endwhile;
+return ;
+   endif;
+  
+
+ 

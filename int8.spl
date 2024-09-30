@@ -1,0 +1,137 @@
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=8;
+//STORING VALUE OF USER STACK
+alias userSP R0;
+alias cpid R1;
+userSP=SP;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13]=SP;
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512-1;
+//INVOKING GET PCB ENTRY FUNCTION
+multipush(R0);
+R1=1;
+call MOD_1;
+cpid=R0;
+multipop(R0);
+if(cpid==-1)then
+[[PTBR+2*((userSP-1)/512)]*512+(userSP-1)%512]=-1;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+ireturn;
+endif;
+//ALLOCATING HEAP PAGES IF NOT ALLOCATED FOR PARENT
+if([PTBR+4]==-1)then
+multipush(R0,R1);
+R1=1;
+call MOD_2;
+[PTBR+4]=R0;
+[PTBR+5]="0110";
+R1=1;
+call MOD_2;
+[PTBR+6]=R0;
+[PTBR+7]="0110";
+multipop(R0,R1);
+endif;
+//ALLOCATING STACK AND USER AREA PAGE FOR CHILD PROCESS
+alias freepage R9;
+multipush(R0,R1);
+R1=1;
+call MOD_2;
+freepage=R0;
+multipop(R0,R1);
+[PAGE_TABLE_BASE+cpid*20+16]=freepage;
+[PAGE_TABLE_BASE+cpid*20+17]="0110";
+multipush(R0,R1);
+R1=1;
+call MOD_2;
+freepage=R0;
+multipop(R0,R1);
+[PAGE_TABLE_BASE+cpid*20+18]=freepage;
+[PAGE_TABLE_BASE+cpid*20+19]="0110";
+//ALLOCATING USER AREA PAGE
+multipush(R0,R1);
+R1=1;
+call MOD_2;
+freepage=R0;
+multipop(R0,R1);
+[PROCESS_TABLE+cpid*16+11]=freepage;
+alias cpt R14;
+alias ppt R15;
+cpt=PROCESS_TABLE+cpid*16;
+ppt=PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16;
+//INITIALISING PROCESS TABLE OF CHILD PROCESS
+[cpt]=0;
+[cpt+1]=cpid;
+[cpt+2]=[SYSTEM_STATUS_TABLE+1];
+[cpt+3]=[ppt+3];
+[cpt+6]=[ppt+6];
+[cpt+10]=[ppt+10];
+[cpt+7]=[ppt+7];
+[cpt+13]=userSP;
+[cpt+9]=0;
+[cpt+12]=0;
+//COPYING CONTENT OF PER PROCESS RESOURCE TABLEOF PARENT TO CHILD
+alias count R4;
+ count=0;
+alias cuserp R6;
+alias  puserp R7;
+cuserp=[PROCESS_TABLE+cpid*16+11];
+puserp=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11];
+
+
+while(count<8)do
+//if parent using file 
+if([puserp*512+496+2*count]==0)then
+[OPEN_FILE_TABLE+[puserp*512+496+2*count+1]*4+1]=[OPEN_FILE_TABLE+[puserp*512+496+2*count+1]*4+1]+1;
+endif;
+
+//if parent is using any semaphore
+if([puserp*512+496+2*count]==1)then
+[SEMAPHORE_TABLE+[puserp*512+496+2*count+1]*4+1]=[SEMAPHORE_TABLE+[puserp*512+496+2*count+1]*4+1]+1;
+endif;
+[cuserp*512+496+2*count]=[puserp*512+496+2*count];
+[cuserp*512+496+2*count+1]=[puserp*512+496+2*count+1];
+count=count+1;
+endwhile;
+//COPYING CONTENT OF DISK MAP TABLE OF PARENT TO CHILD
+count=0;
+while(count<10)do
+if(count>=2&&count<=7)then
+[DISK_MAP_TABLE+cpid*10+count]=[DISK_MAP_TABLE+[SYSTEM_STATUS_TABLE+1]*10+count];
+else
+[DISK_MAP_TABLE+cpid*10+count]=-1;
+ endif;
+count=count+1;
+endwhile;
+//PAGE TABLE ENTRIES FOR CHILD PROCESS
+alias ptbr R7;
+ptbr=PAGE_TABLE_BASE+cpid*20;
+//LIBRARY
+
+//increment in memory count of shared page
+count=0;
+while(count<8)do
+[ptbr+2*count]=[PTBR+2*count];
+[ptbr+2*count+1]=[PTBR+2*count+1];
+[MEMORY_FREE_LIST+[PTBR+2*count]]=[MEMORY_FREE_LIST+[PTBR+2*count]]+1;
+count=count+1;
+endwhile;
+//COPYING STACK OF PARENT PROCESS TO CHILD STACK
+count=0;
+while(count<512)do
+[[ptbr+16]*512+count]=[[PTBR+16]*512+count];
+[[ptbr+18]*512+count]=[[PTBR+18]*512+count];
+count=count+1;
+endwhile;
+//STORING BP ON TOP OF KERNEL STACK OF CHILD PROCESS
+SP=[PROCESS_TABLE+cpid*16+11]*512-1;
+multipush(BP);
+[PROCESS_TABLE+cpid*16+12]=SP%512;
+[PROCESS_TABLE+cpid*16+4]=CREATED;
+//RETURN VALUE FOR CHILD AND PARENT PROCESS
+[[PTBR+2*((userSP-1)/512)]*512+(userSP-1)%512]=cpid;
+[[PAGE_TABLE_BASE+20*cpid+2*((userSP-1)/512)]*512+(userSP-1)%512]=0;
+//SETTING SP TO USERSP
+SP=userSP;
+ireturn;
+
+
+

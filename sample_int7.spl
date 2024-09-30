@@ -1,0 +1,161 @@
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=5;
+alias userSP R0;
+userSP=SP;
+//saving the value of sp in uptr .........
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13]=userSP;
+
+SP=([PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512)-1;
+
+alias filedesc R1;
+filedesc=[[PTBR+2*((userSP-4)/512)]*512+(userSP-4)%512];
+
+alias word R2;
+word=[[PTBR+2*((userSP-3)/512)]*512+(userSP-3)%512];
+ alias returnadd R9;
+  returnadd=[PTBR+2*(userSP-1)/512]*512+(userSP-1)%512;
+
+//writing on terminal
+ if(filedesc==-2)
+ 	then
+    
+	 //calling terminal write function
+	multipush(R0,R1,R2,R3,R4,R5,R9);
+	R1=3;
+	R3=word;
+        R2=[SYSTEM_STATUS_TABLE+1];
+	call MOD_4;
+	multipop(R0,R1,R2,R3,R4,R5,R9);
+	[returnadd]=0;
+	SP=userSP;
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+	ireturn;
+	endif;
+
+
+//writing in a file
+   //filedescriptor is not valid
+if(filedesc<0 || filedesc>7)then
+        [returnadd]=-1;
+        [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+        SP=userSP;
+        ireturn;
+         endif;
+
+   //if resource identifier of process is invalid or not file
+        if([[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512+496+filedesc*2]!=0)then
+        [returnadd]=-1;
+        [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+        SP=userSP;
+        ireturn;
+           endif;
+
+   //locating open file index and inode index of file
+        alias tab_index R3;
+        tab_index=[[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512+496+filedesc*2+1];
+        alias i_index R4;
+        i_index=[OPEN_FILE_TABLE+tab_index*4];
+
+        //If the current user is not root and the current user does not own the file and  the exclusive permission is set, return -3. 
+         if([PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+3]!=ROOT&&[INODE_TABLE+i_index*16+3]!=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+3]&&[INODE_TABLE+i_index*16+4]!=0)then
+           [returnadd]=-3;
+        [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+        SP=userSP;
+        ireturn;
+           endif;
+       //acquiring inode by calling module 0
+
+        multipush(R0,R1,R2,R3,R4,R9);
+        R1=4;
+        R2=i_index;
+        R3=[SYSTEM_STATUS_TABLE+1];
+        call MOD_0;
+        R5=R0;
+        multipop(R0,R1,R2,R3,R4,R9);
+        //if acquiring inode fails return -1;
+        if(R5==-1)then
+        [returnadd]=-1;
+        [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+        SP=userSP;
+        ireturn;
+         endif;
+
+     //getting lseek position and physical address of memory buffer given as input
+      alias lseek R5;
+   lseek=[OPEN_FILE_TABLE+tab_index*4+2];
+      //if lseek exceeeds maximum file size
+       if(lseek==2048)then
+       [returnadd]=-2;
+        [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+        SP=userSP;
+        ireturn;
+        endif;
+
+  //if lseek is multiple of 512 
+      if(lseek%512==0&&lseek==[INODE_TABLE+i_index*16+2])then
+     //get free block calling memory manager module
+     multipush(R0,R1,R2,R3,R4,R5,R9);
+     R1=3;
+     call MOD_2;
+      R6=R0;
+     multipop(R0,R1,R2,R3,R4,R5,R9);
+     //release inode
+     if(R6==-1)then
+      multipush(R0,R1,R2,R3,R4,R5,R9);
+        R1=5;
+        R2=i_index;
+        R3=[SYSTEM_STATUS_TABLE+1];
+        call MOD_0;
+        R5=R0;
+        multipop(R0,R1,R2,R3,R4,R5,R9);
+        [returnadd]=-2;
+        [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+        SP=userSP;
+        ireturn;
+           endif;
+
+
+     //updating inode table
+     [INODE_TABLE+i_index*16+8+lseek/512]=R6;
+
+      endif;
+   
+ //Find the disk block number and the position in the block from which input is to be written.
+      alias disk_off R8;
+       alias disk_blkn R7;
+
+        disk_blkn=[INODE_TABLE+i_index*16+8+lseek/512];
+        disk_off=lseek%512;
+   //calling buffer write
+       multipush(R0,R1,R2,R3,R4,R5,R6,R7,R8,R9);
+     R1=1;
+     R3=disk_off;
+     R4=word;
+     R2=disk_blkn;
+      call MOD_3;
+     multipop(R0,R1,R2,R3,R4,R5,R6,R7,R8,R9);
+
+   //If Lseek equals file size, increment file size in the inode table entry and also in the memory copy of the root file.
+
+
+   if(lseek==[INODE_TABLE+i_index*16+2])then
+    [INODE_TABLE+i_index*16+2]=[INODE_TABLE+i_index*16+2]+1;
+    [ROOT_FILE+i_index*16+1]=[ROOT_FILE+i_index*16+1]+1;
+     endif;
+ //incrementing lseek position 
+   [OPEN_FILE_TABLE+tab_index*4+2]=[OPEN_FILE_TABLE+tab_index*4+2]+1;
+     //release inode
+      multipush(R0,R1,R2,R3,R4,R5,R6,R7,R8,R9);
+        R1=5;
+        R2=i_index;
+        R3=[SYSTEM_STATUS_TABLE+1];
+        call MOD_0;
+        R5=R0;
+        multipop(R0,R1,R2,R3,R4,R5,R6,R7,R8,R9);
+
+
+      [returnadd]=0;
+        [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+        SP=userSP;
+        ireturn;
+
+     

@@ -1,0 +1,99 @@
+//EXTRACTING FUNCTION NUMBER FROM USER STACK
+alias userSP R0;
+userSP=SP;
+alias funNum R1;
+
+funNum=[[PTBR+2*((userSP-5)/512)]*512+(userSP-5)%512];
+
+
+//IMPLEMENTING SEMLOCK .......................SYSTEM CALL
+if(funNum==19)then
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=19;
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512-1;
+alias semdesc R2;
+semdesc=[[PTBR+2*((userSP-4)/512)]*512+(userSP-4)%512];
+alias upage R3;
+upage=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512;
+
+// The descriptor is invalid if not in the range 0 - 7, or if the resource identifier field of the table entry is not 1 
+
+if([upage+496+semdesc*2]==-1||semdesc<0||semdesc>7)then
+
+[[PTBR+2*((userSP-1)/512)]*512+(userSP-1)%512]=-1;
+
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=userSP;
+ireturn;
+endif;
+//CHECKING LOCKING PID FIELD IN SEMAPHORE TABLE
+while([SEMAPHORE_TABLE+[upage+496+2*semdesc+1]*4]!=-1)do
+     
+       [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+4]=WAIT_SEMAPHORE;
+       [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+5]=[upage+496+2*semdesc+1];
+        multipush(R0,R1,R2,R3);
+        call MOD_5;
+         multipop(R0,R1,R2,R3);
+        endwhile;
+//REACHES WHEN SEMAPHORE BECOME FREE
+[SEMAPHORE_TABLE+[upage+496+2*semdesc+1]*4]=[SYSTEM_STATUS_TABLE+1];
+
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=userSP;
+
+
+[[PTBR+2*((userSP-1)/512)]*512+(userSP-1)%512]=0;
+ireturn;
+endif;
+
+
+//IMPLEMENTING -------------------SEMUNLOCK SYSTEM CALL
+
+if(funNum==20)then
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=20;
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512-1;
+alias semdesc R2;
+semdesc=[[PTBR+2*((userSP-4)/512)]*512+(userSP-4)%512];
+alias upage R3;
+upage=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512;
+
+// The descriptor is invalid if not in the range 0 - 7, or if the resource identifier field of the table entry is not 1
+
+if([upage+496+semdesc*2]!=1||semdesc<0||semdesc>7)then
+
+[[PTBR+2*((userSP-1)/512)]*512+(userSP-1)%512]=-1;
+
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=userSP;
+ireturn;
+endif;
+// LOCKING PID FIELD IN SEMAPHORE TABLE IS NOT CURRENT PID
+if([SEMAPHORE_TABLE+[upage+496+2*semdesc+1]*4]!=[SYSTEM_STATUS_TABLE+1])then
+[[PTBR+2*((userSP-1)/512)]*512+(userSP-1)%512]=-2;
+
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=userSP;
+ireturn;
+endif;
+//UNLOCK THE LOCK
+[SEMAPHORE_TABLE+[upage+496+2*semdesc+1]*4]=-1;
+//SET STATE OF ALL WAITING PROCESS FOR THIS SEMAPHORE TO READY
+
+alias count R4;
+count=0;
+while(count<16)do
+if([PROCESS_TABLE+count*16+4]==WAIT_SEMAPHORE&&[PROCESS_TABLE+count*16+5]==[upage+496+2*semdesc+1])then
+
+[PROCESS_TABLE+count*16+4]=READY;
+endif;
+count=count+1;
+endwhile;
+//RETURN BACK TO USER PROCESS
+
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=userSP;
+
+
+[[PTBR+2*((userSP-1)/512)]*512+(userSP-1)%512]=0;
+ireturn;
+endif;
+

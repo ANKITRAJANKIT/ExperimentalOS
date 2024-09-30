@@ -1,0 +1,67 @@
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=-1;
+breakpoint;
+alias userSP R0;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13]=SP;
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512-1;
+backup;
+userSP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+multipush(EIP);
+//WHEN EXCEPTION IS NOT CORRECTABLE
+if((EC != 0) || (userSP == (PTLR*512-1)))then
+  if(EC==1)then
+  R2="IL INSTRUCTION";
+   print R2;
+   endif;
+ if(EC==2)then
+  R2="IL MEMORY AC";
+   print R2;
+   endif;
+ if(EC==3)then
+  R2="ARITHMETIC EXCEP";
+   print R2;
+   endif;
+  if(EC!=1&&EC!=2&&EC!=3)
+    then
+  print "USERSP FULL";
+   endif;
+ multipush(R0,R1,R2,R3,R4);
+   R1=3;
+   R2=[SYSTEM_STATUS_TABLE+1];
+   call MOD_1;
+    multipop(R0,R1,R2,R3,R4);
+   call MOD_5;
+endif;
+//WHEN PAGE FAULT OCCURS
+//WHEN PAGE FAULT DUE TO CODE PAGES
+ if(EPN>3&&EPN<=7)then
+  multipush(R0,R1,R2,R3,R4,R5);
+   R1=5;
+  R2=[DISK_MAP_TABLE+[SYSTEM_STATUS_TABLE+1]*10+EPN];
+  call MOD_2;
+   [PTBR+2*EPN]=R0;
+   [PTBR+2*EPN+1]="1100";
+   multipop(R0,R1,R2,R3,R4,R5);
+   endif;
+//WHEN PAGE FAULT DUE TO HEAP PAGES
+  if(EPN==2||EPN==3)then
+   multipush(R0,R1,R2,R3,R4,R5);
+      R1=1;
+      call MOD_2;
+      [PTBR+4]=R0;
+      [PTBR+5]="1110";
+      R1=1;
+      call MOD_2;
+      [PTBR+6]=R0;
+      [PTBR+7]="1110";
+     multipop(R0,R1,R2,R3,R4,R5);
+     endif;
+multipop(EIP);
+restore;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+breakpoint;
+SP=SP+1;
+[[PTBR+2*(SP/512)]*512+SP%512]=EIP;
+ireturn ;
+
+      

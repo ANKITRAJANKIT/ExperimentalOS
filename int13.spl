@@ -1,0 +1,107 @@
+//EXTRACTING FUNCTION NUMBER FROM USER STACK
+alias userSP R0;
+userSP=SP;
+alias funNum R1;
+
+funNum=[[PTBR+2*((userSP-5)/512)]*512+(userSP-5)%512];
+
+
+//IMPLEMENTING SEMGET .......................SYSTEM CALL
+if(funNum==17)then
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=17;
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512-1;
+alias upage R2;
+upage=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512;
+alias count R3;
+count=0;
+while(count<8)do
+ if([upage+496+2*count]==-1)then
+     break;
+   endif;
+  count=count+1;
+endwhile;
+
+
+//IF NO FREE ENTRY IN PER PROCESS TABLE
+if(count==8)then
+[[PTBR+2*((userSP-1)/512)]*512+(userSP-1)%512]=-1;
+//RESET MODE FLAG
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=userSP;
+ireturn;
+endif;
+
+//SETTING RESOURCE TABLE ENTRY TO 1
+[upage+496+2*count]=1;
+
+
+//CALLING RESOURCE MANAGER MODULE
+alias freesem R4;
+multipush(R0,R1,R2,R3);
+R1=6;
+R2=[SYSTEM_STATUS_TABLE+1];
+call MOD_0;
+freesem=R0;
+multipop(R0,R1,R2,R3);
+
+//if no free semaphore 
+if(freesem==-1)then
+[[PTBR+2*((userSP-1)/512)]*512+(userSP-1)%512]=-2;
+//RESET MODE FLAG
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=userSP;
+ireturn;
+endif;
+
+//if free semaphore is available
+[upage+496+2*count+1]=freesem;
+//return resource table entry index
+[[PTBR+2*((userSP-1)/512)]*512+(userSP-1)%512]=count;
+//RESET MODE FLAG
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=userSP;
+ireturn;
+endif;
+
+
+//IMPLEMENTING .........SEMRELEASE SYSTEM CALL
+if(funNum==18)then
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=18;
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512-1;
+alias semdesc R2;
+semdesc=[[PTBR+2*((userSP-4)/512)]*512+(userSP-4)%512];
+
+alias upage R3;
+upage=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512;
+//if semdesc is not valid or resource identifier is invalid
+
+if(semdesc<0||semdesc>7||[upage+496+semdesc*2]!=1)then
+
+[[PTBR+2*((userSP-1)/512)]*512+(userSP-1)%512]=-1;
+//RESET MODE FLAG
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=userSP;
+ireturn;
+endif;
+//calling resource manager to release semaphore
+ multipush(R0,R1,R2,R3);
+ R1=7;
+ R2=[upage+496+2*semdesc+1];
+ R3=[SYSTEM_STATUS_TABLE+1];
+  call MOD_0;
+  multipop(R0,R1,R2,R3);
+//setting per process resource table entry to -1;
+[upage+2*semdesc+496]=-1;
+
+[[PTBR+2*((userSP-1)/512)]*512+(userSP-1)%512]=0;
+//RESET MODE FLAG
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=userSP;
+ireturn;
+endif;
+
+
+
+
+
+ 

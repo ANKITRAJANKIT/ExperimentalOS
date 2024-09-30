@@ -1,0 +1,248 @@
+//EXTRACTING FUNCTION NUMBER FROM USER STACK
+alias userSP R0;
+alias retadd R10;
+userSP=SP;
+retadd=[PTBR+2*((userSP-1)/512)]*512+(userSP-1)%512;
+alias funNum R1;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13]=SP;
+funNum=[[PTBR+2*((userSP-5)/512)]*512+(userSP-5)%512];
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512-1;
+
+//IMPLEMENTING ............OPEN SYSTEM CALL
+if(funNum==2)then
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=2;
+
+
+//checking for free entry for per process table
+alias upage R2;
+ upage=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11];
+
+alias count R3;
+ count=0;
+while(count<8)do
+
+if([upage*512+496+count*2]==-1)then
+   break;
+endif;
+count=count+1;
+endwhile;
+
+//process has reached it limit resource 
+if(count==8)then
+SP=userSP;
+[retadd]=-3;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+ireturn ;
+endif;
+alias filename R4;
+
+filename=[[PTBR+2*((userSP-4)/512)]*512+(userSP-4)%512];
+
+//calling open function from file manager
+multipush(R0,R1,R2,R3,R4,R10);
+R1=3;
+R2=filename;
+call MOD_3;
+R5=R0;
+multipop(R0,R1,R2,R3,R4,R10);
+
+
+//File not found or file is not a data or root file
+
+if(R5==-1)then
+SP=userSP;
+[retadd]=-1;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+ireturn ;
+endif;
+
+//System has reached its limit of open files
+
+if(R5==-2)then
+SP=userSP;
+[retadd]=-2;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+ireturn ;
+endif;
+
+//setting per process table entry
+
+
+[upage*512+496+count*2]=0;
+[upage*512+496+count*2+1]=R5;
+
+//Success, the return value is the file descriptor for the opened file. 
+
+SP=userSP;
+[retadd]=count;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+ireturn ;
+endif;
+
+
+//extracting user area page
+alias upage R2;
+ upage=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11];
+//extracting filedesc from user sp
+alias filedesc R4;
+filedesc=[[PTBR+2*((userSP-4)/512)]*512+(userSP-4)%512];
+//identifying perprocess table entry
+alias res_idt R5;
+  res_idt=upage*512+496+filedesc*2;
+
+
+//IMPLEMENTING ............CLOSE SYSTEM CALL
+if(funNum==3)then
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=3;
+
+//If file descriptor is invalid, return -1.
+if(filedesc>7||filedesc<0)then
+SP=userSP;
+[retadd]=-1;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+ireturn ;
+endif;
+
+//No file is open with this file descriptor.
+if([res_idt]!=0)then
+SP=userSP;
+[retadd]=-1;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+ireturn ;
+endif;
+
+//calling close function from file manager module 
+multipush(R0,R1,R2,R3,R4,R5,R10);
+R1=4;
+R2=[res_idt+1];
+call MOD_3;
+multipop(R0,R1,R2,R3,R4,R5,R10);
+//Invalidate the Per-Process Resource Table entry.
+[res_idt]=-1;
+
+SP=userSP;
+[retadd]=0;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+ireturn ;
+endif;
+
+//IMPLEMENTING ...LSEEK SYSTEM CALL
+if(funNum==6)then
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=6;
+//If file descriptor is invalid, return -1.
+if(filedesc>7||filedesc<0)then
+print "up";
+SP=userSP;
+[retadd]=-1;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+ireturn ;
+endif;
+
+//No file is open with this file descriptor.
+if([res_idt]!=0)then
+SP=userSP;
+[retadd]=-1;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+
+ireturn ;
+endif;
+alias tab_ind R6;
+alias i_index R7;
+
+tab_ind=[res_idt+1];
+i_index=[OPEN_FILE_TABLE+tab_ind*4];
+
+//acquire inode
+multipush(R0,R1,R2,R3,R5,R6,R7,R10);
+      R1 = 4;
+      R2 = [SYSTEM_STATUS_TABLE + 1];
+      R3 = i_index;
+      call MOD_0;
+      R8=R0;
+      multipop(R0,R1,R2,R3,R5,R6,R7,R10);
+	//when acquire inode fail
+ 	if(R8==-1)then
+  	SP=userSP;
+	[retadd]=-1;
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+	ireturn ;
+  	endif;
+//getting file size 
+ alias file_s R3;
+   if(i_index==INODE_ROOT)then 
+        file_s=480;
+    else file_s=[INODE_TABLE+i_index*16+2];
+     endif;
+
+
+
+    //getting current lseek position
+    alias lseek R8;
+       lseek=OPEN_FILE_TABLE+tab_ind*4+2;
+   //extracting offset from user table
+    alias offset R9;
+    offset=[[PTBR+2*((userSP-3)/512)]*512+(userSP-3)%512];
+
+
+
+     //[lseek]+offset is less than 0
+     if([lseek]+offset<0)then
+        R12=-2;
+         endif;
+
+
+
+
+     if(offset==0)then
+       [lseek]=0;
+     else 
+    	//lseek+offset is greater than file size
+     	if([lseek]+offset>file_s)then
+   
+     	 [lseek]=file_s;
+    
+           else [lseek]=[lseek]+offset;
+          
+	
+
+
+            endif;
+      endif;
+
+//releasing inode 
+
+multipush(R0,R12,R10);
+      R1 = 5;
+      R2 = [SYSTEM_STATUS_TABLE + 1];
+      R3 = i_index;
+      call MOD_0;
+      multipop(R0,R12,R10);
+  if(R12==-2)then
+	[retadd]=-2;
+      else [retadd]=0;
+  	endif;
+
+      SP=userSP;
+	[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+	ireturn ;
+
+ endif;
+
+   
+      
+   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

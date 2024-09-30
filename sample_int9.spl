@@ -1,0 +1,136 @@
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=9;
+alias userSP R0;
+userSP=SP;
+//saving the value of sp in uptr .........
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13]=SP;
+//SETTING THE VALUE OF SP TO THE BEGINNING OF KERNEL STACK
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512-1;
+alias physicalPageNum R1;
+alias offset R2;
+alias fileName R3;
+physicalPageNum=[PTBR+2*((userSP-4)/512)];
+offset=(userSP-4)%512;
+fileName=[physicalPageNum*512+offset];
+//searching inode index of file
+alias fileNum R4;
+fileNum=0;
+alias fileFound R5;
+fileFound=0;
+  while(fileNum<60)
+        do
+       if([INODE_TABLE+fileNum*16]==EXEC&&[INODE_TABLE+fileNum*16+1]==fileName)then
+         fileFound=1;
+          break;
+        endif;
+       fileNum=fileNum+1;
+        endwhile;
+//indicating failure of inode search
+if(fileFound==0)
+    then
+[[PTBR+2*((userSP-1)/512)]*512+((userSP-1)%512)]=-1;
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+13];
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+ireturn ;
+endif;
+//CALLING ...EXIT ..PROCESS..FUNCTION
+multipush(R0,R1,R2,R3,R4,R5,R6);
+R1=3;
+R2=[SYSTEM_STATUS_TABLE+1];
+call MOD_1;
+multipop(R0,R1,R2,R3,R4,R5,R6);
+//GETTING USER AREA PAGE NUMBER OF PROCESS
+[MEMORY_FREE_LIST+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]]=[MEMORY_FREE_LIST+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]]+1;
+[SYSTEM_STATUS_TABLE+2]=[SYSTEM_STATUS_TABLE+2]-1;
+//SETTING SP TO KERNEL STACK
+SP=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512-1;
+
+
+//initialising peprocess table for the process
+alias upage R8;
+upage=[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+11]*512;
+alias count1 R9;
+count1=0;
+while(count1<8)do
+[upage+496+2*count1]=-1;
+count1=count1+1;
+endwhile;
+
+
+//UPDATING STATUS FIELD TO RUNNING AND STORE INODE INDEX OBTAINED
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+4]=RUNNING;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+7]=fileNum;
+//SETTING UP PROCESS TABLE ENTRY FOR NEW PROCESS
+//LIBRARY
+[PTBR+0]=63;
+[PTBR+1]="0100";
+[PTBR+2]=64;
+[PTBR+3]="0100";
+multipush(R0,R1,R2,R3,R4,R5,R6);
+//INVALIDATING HEAP ENTRIES
+[PTBR+4]=-1;
+[PTBR+5]="0000";
+[PTBR+6]=-1;
+[PTBR+7]="0000";
+//SETTING STACK
+R1=1;
+call MOD_2;
+[PTBR+16]=R0;
+[PTBR+17]="0110";
+R1=1;
+call MOD_2;
+[PTBR+18]=R0;
+[PTBR+19]="0110";
+multipop(R0,R1,R2,R3,R4,R5,R6);
+//SETTING AND LOADING FIRST PAGE OF CODE BLOCK
+alias blockNum R6;
+blockNum=[INODE_TABLE+fileNum*16+8];
+ if(blockNum!=-1)
+    then 
+     multipush(R0,R1,R2,R3,R4,R5,R6);
+    R1=5;
+    R2=[INODE_TABLE+fileNum*16+8];
+    call MOD_2;
+    [PTBR+8]=R0;
+    [PTBR+8+1]="0100";
+multipop(R0,R1,R2,R3,R4,R5,R6);
+    else 
+          [PTBR+8]=-1;
+         [PTBR+8+1]="0000";
+      endif;
+alias count R7;
+count=1;
+//INVALIDATING ALL OTHER CODE PAGES OF PAGE TABLE
+while(count<4)do
+[PTBR+8+2*count]=-1;
+[PTBR+8+2*count+1]="0000";
+count=count+1;
+endwhile;
+//INITIALISING DISK MAP TABLE
+[DISK_MAP_TABLE+[SYSTEM_STATUS_TABLE+1]*10]=-1;
+[DISK_MAP_TABLE+[SYSTEM_STATUS_TABLE+1]*10+1]=-1;
+[DISK_MAP_TABLE+[SYSTEM_STATUS_TABLE+1]*10+2]=-1;
+[DISK_MAP_TABLE+[SYSTEM_STATUS_TABLE+1]*10+3]=-1;
+count=4;
+while(count<8)do
+[DISK_MAP_TABLE+[SYSTEM_STATUS_TABLE+1]*10+count]=[INODE_TABLE+fileNum*16+8+count-4];
+count=count+1;
+endwhile;
+while(count<10)do
+[DISK_MAP_TABLE+[SYSTEM_STATUS_TABLE+1]*10+count]=-1;
+count=count+1;
+endwhile;
+
+//SETTING ENTRY POINT
+[[PTBR+16]*512]=[[PTBR+8]*512+1];
+//SETTING SP TO USER STACK
+SP=8*512;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+ireturn;
+
+
+
+
+
+
+
+
